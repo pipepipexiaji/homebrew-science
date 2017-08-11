@@ -1,8 +1,8 @@
 class Pymol < Formula
   desc "OpenGL based molecular visualization system"
-  homepage "http://pymol.org"
-  url "https://downloads.sourceforge.net/project/pymol/pymol/1.8/pymol-v1.8.4.0.tar.bz2"
-  sha256 "b6147befe74844dd23550461b831b2fa6d170d4456f0059cf93fb1e8cb43d279"
+  homepage "https://pymol.org/"
+  url "https://downloads.sourceforge.net/project/pymol/pymol/1.8/pymol-v1.8.6.0.tar.bz2"
+  sha256 "7eaaf90ac1e1be0969291cdb1154b3631b5b6403cce1d697133d90cd37a3c565"
   head "https://svn.code.sf.net/p/pymol/code/trunk/pymol"
 
   bottle do
@@ -13,17 +13,51 @@ class Pymol < Formula
   end
 
   depends_on "glew"
-  depends_on "python" => "with-tcl-tk"
-  depends_on "homebrew/dupes/tcl-tk" => ["with-threads", "with-x11"]
+  depends_on "msgpack"
   depends_on :x11
 
-  def install
-    ENV.append_to_cflags "-Qunused-arguments" if MacOS.version < :mavericks
+  if OS.mac?
+    depends_on :python
+  else
+    depends_on "freetype"
+    depends_on "gpatch" # see homebrew/homebrew-science#5102
+    depends_on "tcl-tk"
+    depends_on "libxml2"
+    depends_on "python" => "with-tcl-tk"
+  end
 
-    system "python", "-s", "setup.py", "install",
-                     "--bundled-pmw",
-                     "--install-scripts=#{libexec}/bin",
-                     "--install-lib=#{libexec}/lib/python2.7/site-packages"
+  needs :cxx11
+
+  # Patch that makes the OS X native windowing system (Aqua) and PyMol play nicely together.
+  # Fixes https://sourceforge.net/p/pymol/bugs/187/ (05.09.17) and
+  # https://github.com/Homebrew/homebrew-science/issues/5505 (04.27.17), in which bad GUI calls were causing segfaults.
+  patch do
+    url "https://gist.githubusercontent.com/telamonian/494150cf2992d324272de9a0ded78e37/raw/9abce6d6f97b3943856b63f83ad5b7352c339926/osx_aqua_ext_gui_fix.diff"
+    sha256 "14cef03169290500a8232c9ab78964fa169bcd0854a01ced95ccbe55bd70e2c6"
+  end
+
+  def install
+    args = %W[
+      --bundled-pmw
+      --install-scripts=#{libexec}/bin
+      --install-lib=#{libexec}/lib/python2.7/site-packages
+    ]
+
+    if OS.mac?
+      # clang emits >1e5 lines of nullability warnings for pymol, turn them off
+      ENV.append_to_cflags "-Wno-nullability-completeness"
+
+      # support for older Mac OS
+      ENV.append_to_cflags "-Qunused-arguments" if MacOS.version < :mavericks
+
+      system "python", "-s", "setup.py", "install", *args
+    else
+      # on linux, add the path hint that setup.py needs in order to find the freetype and libxml2 headers
+      ENV.prepend_path "PREFIX_PATH", ENV["HOMEBREW_PREFIX"]
+
+      # because the linux python dep is specified with "python" instead of :python, python2 is needed here
+      system "python2", "-s", "setup.py", "install", *args
+    end
 
     bin.install libexec/"bin/pymol"
   end
